@@ -28,7 +28,8 @@ This repo studies constipation, food choices, physical activity, and economic cl
 
 ## Status
 Stage 1 (repo setup) and stage 2 (data audit) are done. The audit found 74 sources for India and the US. Direct constipation data is thin: see `docs/decisions/0002-source-audit-method-and-result.md`.
-Next: stage 3, collect data with one script for each open source.
+Stage 3 (collect, batch 1) is done: run `python3 scripts/fetch_all.py` to rebuild `data/` (NHANES 2005-2010, FAOSTAT, World Bank, Strain et al. activity files), then `python3 scripts/verify.py`. See `docs/coverage.md` for what the data can and cannot show. The Global Dietary Database needs a free account, which you register by hand.
+Next: decide how to handle the weak constipation series, then stage 4 (clean and join).
 
 ## License
 Code: MIT (see `LICENSE`). Data: each source keeps its own license. See `docs/sources.md`.
