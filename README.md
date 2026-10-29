@@ -15,6 +15,7 @@ This repo studies constipation, food choices, physical activity, and economic cl
 3. **Explore first, test second.** Causal ideas are written down before the test. The test uses data that the exploration did not use.
 4. **Say "linked with", not "causes",** unless a causal test supports it.
 5. **One commit for each step.** The message says what changed, why, and which options were rejected.
+6. **Install the hook once per clone:** `git config core.hooksPath .githooks` (see `CONTRIBUTING.md`). It runs the tests and gitleaks before each commit. Agents read `AGENTS.md` first.
 
 ## Where things are
 | Path | Content |

@@ -1,5 +1,10 @@
 # Working rules
 
+## Setup (once per clone)
+- Run `git config core.hooksPath .githooks`. The pre-commit hook then refuses a staged `data/` file, a failing unit test, and a gitleaks finding. It needs `gitleaks` (`brew install gitleaks`).
+- CI (`.github/workflows/tests.yml`) runs the same tests and a gitleaks scan of the history on each push and pull request.
+- Agents: read `AGENTS.md` first. It holds facts that no other file shows.
+
 ## Commits
 - One commit for one step or one decision. Keep it small.
 - Subject line: what changed (50 characters or fewer).
