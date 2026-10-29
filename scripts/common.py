@@ -1,9 +1,13 @@
-"""Shared helpers for the fetch scripts. Standard library only."""
+"""Run one fetcher at a time. The manifest has no lock.
+
+Shared helpers for the fetch scripts. Standard library only.
+"""
 import csv
 import hashlib
 import logging
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -15,7 +19,72 @@ MANIFEST_COLUMNS = [
     "source_id", "file", "url", "bytes", "sha256", "downloaded_utc", "http_status",
 ]
 
+ALLOWED_SCHEMES = {"https"}
+
 _last_request_time = 0.0
+
+
+class _TruncatedError(Exception):
+    """The body length differs from the Content-Length header."""
+
+
+def _header(headers, name):
+    if headers is None:
+        return None
+    try:
+        value = headers.get(name)
+    except Exception:
+        value = None
+    if value is not None:
+        return value
+    try:
+        items = headers.items()
+    except Exception:
+        return None
+    for key, value in items:
+        if str(key).lower() == name.lower():
+            return value
+    return None
+
+
+def _url_scheme(url):
+    return urllib.parse.urlparse(str(url)).scheme.lower()
+
+
+class SameHostHttpsRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Refuse redirects to a different host or to a non-https scheme."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        try:
+            original_url = req.get_full_url()
+        except Exception:
+            original_url = getattr(req, "full_url", None) or getattr(req, "url", "")
+        original = urllib.parse.urlparse(str(original_url))
+        target = urllib.parse.urlparse(str(newurl))
+        if target.scheme.lower() != "https":
+            raise urllib.error.URLError(
+                "refuse redirect to non-https URL: %s" % newurl)
+        if (target.hostname or "").lower() != (original.hostname or "").lower():
+            raise urllib.error.URLError(
+                "refuse redirect to a different host: %s" % newurl)
+        try:
+            return super().redirect_request(req, fp, code, msg, headers, newurl)
+        except Exception:
+            req_headers = getattr(req, "headers", {}) or {}
+            try:
+                req_headers = dict(req_headers)
+            except Exception:
+                req_headers = {}
+            return urllib.request.Request(newurl, headers=req_headers)
+
+
+# Short aliases for the redirect handler.
+HttpsRedirectHandler = SameHostHttpsRedirectHandler
+SafeRedirectHandler = SameHostHttpsRedirectHandler
+RedirectHandler = SameHostHttpsRedirectHandler
+
+urllib.request.install_opener(
+    urllib.request.build_opener(SameHostHttpsRedirectHandler()))
 
 
 class DownloadError(Exception):
@@ -87,6 +156,20 @@ def _check_inside_data(dest, data_dir):
         raise ValueError("refuse to write outside data/: %s" % dest)
 
 
+def _prepare_part(part, data_dir=None):
+    """Remove a symlinked part file and check its parent stays in data/."""
+    part = Path(part)
+    if part.is_symlink():
+        part.unlink()
+    if data_dir is not None:
+        root = Path(data_dir).resolve()
+        parent = part.parent.resolve()
+        if root != parent and root not in parent.parents:
+            raise ValueError("refuse to write outside data/: %s" % part)
+        _check_inside_data(part, data_dir)
+    return part
+
+
 def safe_dest(data_dir, source_id, filename):
     """Build data/raw/<source_id>/<filename> and refuse path escapes."""
     if Path(filename).name != filename or filename in ("", ".", ".."):
@@ -118,6 +201,7 @@ class Manifest:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         _check_inside_data(self.path, self.data_dir)
         tmp = self.path.with_suffix(".csv.part")
+        _prepare_part(tmp, self.data_dir)
         with open(tmp, "w", newline="", encoding="utf-8") as handle:
             writer = csv.DictWriter(handle, fieldnames=MANIFEST_COLUMNS)
             writer.writeheader()
@@ -178,7 +262,11 @@ def is_complete(dest, manifest):
 def setup_logging(source_id, data_dir):
     """Log to the console and to data/logs/<source_id>_<time>.log."""
     log_dir = Path(data_dir) / "logs"
+    if log_dir.is_symlink():
+        raise ValueError("refuse symlinked log dir: %s" % log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
+    if log_dir.is_symlink():
+        raise ValueError("refuse symlinked log dir: %s" % log_dir)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     log_path = log_dir / ("%s_%s.log" % (source_id, stamp))
     logger = logging.getLogger(source_id)
@@ -199,25 +287,47 @@ def download(url, dest, *, expected_min_bytes=1, retries=3, timeout=60, data_dir
     exception. Other failures raise DownloadError after the retries.
     """
     log = logger or logging.getLogger("download")
+    if _url_scheme(url) not in {str(s).lower() for s in ALLOWED_SCHEMES}:
+        raise DownloadError("refused URL scheme for %s" % url)
     dest = Path(dest)
     _check_inside_data(dest, data_dir)
     dest.parent.mkdir(parents=True, exist_ok=True)
     part = dest.with_name(dest.name + ".part")
+    _prepare_part(part, data_dir)
     last_error = None
     http_status = 0
+    content_type = ""
     for attempt in range(1, retries + 1):
         try:
             _wait_for_slot()
             request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 http_status = response.getcode() or 200
+                headers = getattr(response, "headers", None)
+                content_type = _header(headers, "Content-Type") or ""
+                raw_length = _header(headers, "Content-Length")
+                try:
+                    expected_length = int(raw_length) if raw_length is not None else None
+                except (TypeError, ValueError):
+                    expected_length = None
+                written = 0
+                _prepare_part(part, data_dir)
                 with open(part, "wb") as out:
                     while True:
                         chunk = response.read(1024 * 256)
                         if not chunk:
                             break
                         out.write(chunk)
+                        written += len(chunk)
+                if expected_length is not None and written != expected_length:
+                    raise _TruncatedError(
+                        "truncated response for %s: %s of %s bytes"
+                        % (url, written, expected_length))
             break
+        except _TruncatedError as error:
+            last_error = error
+            part.unlink(missing_ok=True)
+            log.warning("error for %s (attempt %s/%s): %s", url, attempt, retries, error)
         except urllib.error.HTTPError as error:
             http_status = error.code
             last_error = error
@@ -244,6 +354,9 @@ def download(url, dest, *, expected_min_bytes=1, retries=3, timeout=60, data_dir
         log.warning("needs_login %s (login form)", url)
         part.unlink(missing_ok=True)
         return DownloadResult("needs_login", url, dest, http_status=http_status)
+    if not expects_html and str(content_type).strip().lower().startswith("text/html"):
+        part.unlink(missing_ok=True)
+        raise DownloadError("HTML page where a data file was expected: %s" % url)
     if size < max(1, expected_min_bytes) or size == 0:
         part.unlink(missing_ok=True)
         raise DownloadError("file too small (%s bytes) for %s" % (size, url))
@@ -258,11 +371,15 @@ def download(url, dest, *, expected_min_bytes=1, retries=3, timeout=60, data_dir
 def fetch_text(url, *, timeout=60, logger=None):
     """Fetch a small page as text. Return (text, http_status)."""
     log = logger or logging.getLogger("download")
+    if _url_scheme(url) not in {str(s).lower() for s in ALLOWED_SCHEMES}:
+        raise ValueError("refused URL scheme for %s" % url)
     _wait_for_slot()
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
-            charset = response.headers.get_content_charset() or "utf-8"
+            headers = getattr(response, "headers", None)
+            get_charset = getattr(headers, "get_content_charset", None)
+            charset = (get_charset() if callable(get_charset) else None) or "utf-8"
             return response.read().decode(charset, errors="replace"), response.getcode() or 200
     except urllib.error.HTTPError as error:
         if error.code in (401, 403):

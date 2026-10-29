@@ -1,9 +1,13 @@
 """Offline tests for scripts/common.py. No network: file:// URLs only."""
 import csv
 import hashlib
+import io
 import sys
 import tempfile
 import unittest
+import unittest.mock
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
@@ -16,8 +20,11 @@ class CommonTestCase(unittest.TestCase):
         self.data_dir = Path(self.tmp.name) / "data"
         (self.data_dir / "raw" / "test").mkdir(parents=True)
         common.REQUEST_INTERVAL = 0  # no polite wait in tests
+        self._saved_schemes = common.ALLOWED_SCHEMES
+        common.ALLOWED_SCHEMES = {"https", "file"}
 
     def tearDown(self):
+        common.ALLOWED_SCHEMES = self._saved_schemes
         self.tmp.cleanup()
 
     def manifest(self):
@@ -173,6 +180,134 @@ class TestFetchOneSkip(CommonTestCase):
         status = common.fetch_one("test", "https://example.invalid/never.csv", dest,
                                   manifest, data_dir=self.data_dir)
         self.assertEqual(status, "skip")
+
+
+class FakeHeaders(dict):
+    def get_content_charset(self, failobj=None):
+        return failobj
+
+
+class FakeResponse:
+    def __init__(self, body, headers=None, code=200):
+        self._body = io.BytesIO(body)
+        self.headers = FakeHeaders(headers or {})
+        self._code = code
+
+    def getcode(self):
+        return self._code
+
+    def read(self, n=-1):
+        return self._body.read(n)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+class TestSymlinks(CommonTestCase):
+    def test_symlinked_part_does_not_write_outside(self):
+        outside = Path(self.tmp.name) / "outside.txt"
+        outside.write_bytes(b"original")
+        dest = self.dest("linked.csv")
+        part = Path(str(dest) + ".part")
+        part.symlink_to(outside)
+        result = common.download(
+            self._src(b"a,b\n1,2\n"), dest, data_dir=self.data_dir)
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(outside.read_bytes(), b"original")
+        self.assertEqual(dest.read_bytes(), b"a,b\n1,2\n")
+        self.assertFalse(part.is_symlink())
+
+    def _src(self, data):
+        path = Path(self.tmp.name) / "src.csv"
+        path.write_bytes(data)
+        return path.as_uri()
+
+    def test_symlinked_manifest_part_does_not_write_outside(self):
+        outside = Path(self.tmp.name) / "outside.csv"
+        outside.write_text("original", encoding="utf-8")
+        manifest = self.manifest()
+        tmp_part = self.data_dir / "manifest.csv.part"
+        tmp_part.symlink_to(outside)
+        manifest.record("test", self.dest(), "https://example.invalid/a.csv", 3, "abc", 200)
+        self.assertEqual(outside.read_text(encoding="utf-8"), "original")
+        self.assertTrue((self.data_dir / "manifest.csv").exists())
+
+    def test_symlinked_log_dir_refused(self):
+        outside = Path(self.tmp.name) / "outside_logs"
+        outside.mkdir()
+        (self.data_dir / "logs").symlink_to(outside, target_is_directory=True)
+        with self.assertRaises(ValueError):
+            common.setup_logging("test", self.data_dir)
+
+
+class TestMockedResponses(CommonTestCase):
+    def test_truncated_response_is_refused(self):
+        body = b"a,b\n1,2\n"
+        fake = FakeResponse(body, {"Content-Length": str(len(body) + 10)})
+        dest = self.dest("trunc.csv")
+        with unittest.mock.patch("urllib.request.urlopen", return_value=fake):
+            with self.assertRaises(common.DownloadError):
+                common.download("https://example.invalid/trunc.csv", dest,
+                                retries=1, data_dir=self.data_dir)
+        self.assertFalse(dest.exists())
+        self.assertFalse(Path(str(dest) + ".part").exists())
+
+    def test_html_content_type_refused_for_data_file(self):
+        body = b"plain,text\n1,2\n"
+        fake = FakeResponse(body, {
+            "Content-Length": str(len(body)),
+            "Content-Type": "text/html; charset=utf-8",
+        })
+        dest = self.dest("ctype.csv")
+        with unittest.mock.patch("urllib.request.urlopen", return_value=fake):
+            with self.assertRaises(common.DownloadError) as ctx:
+                common.download("https://example.invalid/ctype.csv", dest,
+                                retries=1, data_dir=self.data_dir)
+        self.assertIn("HTML page where a data file was expected", str(ctx.exception))
+        self.assertFalse(dest.exists())
+        self.assertFalse(Path(str(dest) + ".part").exists())
+
+
+class TestHttpsOnly(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.data_dir = Path(self.tmp.name) / "data"
+        (self.data_dir / "raw" / "test").mkdir(parents=True)
+        common.REQUEST_INTERVAL = 0
+        self._saved = common.ALLOWED_SCHEMES
+        common.ALLOWED_SCHEMES = {"https"}
+
+    def tearDown(self):
+        common.ALLOWED_SCHEMES = self._saved
+        self.tmp.cleanup()
+
+    def test_http_and_file_refused_by_default(self):
+        dest = common.safe_dest(self.data_dir, "test", "x.csv")
+        with self.assertRaises(common.DownloadError):
+            common.download("http://example.invalid/x.csv", dest, data_dir=self.data_dir)
+        with self.assertRaises(common.DownloadError):
+            common.download("file:///etc/passwd", dest, data_dir=self.data_dir)
+        with self.assertRaises(ValueError):
+            common.fetch_text("http://example.invalid/page")
+        with self.assertRaises(ValueError):
+            common.fetch_text("file:///etc/passwd")
+
+    def test_redirect_handler_refuses_cross_host_and_http(self):
+        handler = common.SameHostHttpsRedirectHandler()
+
+        class FakeReq:
+            full_url = "https://example.com/start"
+            headers = {}
+
+            def get_full_url(self):
+                return self.full_url
+
+        for newurl in ("https://evil.example/x", "http://example.com/x"):
+            with self.assertRaises(urllib.error.URLError):
+                handler.redirect_request(FakeReq(), None, 302, "Found", {}, newurl)
 
 
 if __name__ == "__main__":
