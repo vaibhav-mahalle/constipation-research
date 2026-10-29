@@ -2,6 +2,18 @@
 
 Add one entry for each technical problem. Newest first.
 
+## 2026-10-30: Muse quota ran out during the literature search
+- **Symptom:** The Muse research run ended with status `failed` and "API error 429 ... Subscription quota exhausted" after 31 searches and 14 page fetches. No table was written.
+- **Cause:** `muse usage` showed the window at 84% before the start. Earlier Muse rounds in the same window had used the rest.
+- **Fix:** No Muse output is used. The second independent search did not happen, so the study list has one searcher. A rerun after the window resets is possible.
+- **Prevent:** Start a research run only if the window is below about 60%, or wait for the reset.
+
+## 2026-10-30: A research agent's table had errors that only the full text showed
+- **Symptom:** The agent said the Kerala study (IN09) had no constipation split. Table 6 of the paper has splits by age, sex, education, and residence. The agent also missed that a 12-city study gives 19.7% in its text and 12.2% in its table.
+- **Cause:** The agent read mostly abstracts through an API. A claim of "not reported" is a claim about the whole paper.
+- **Fix:** Claude opened 19 papers and corrected the rows. Each row now says what Claude read.
+- **Prevent:** Treat "no split found" and "not reported" as unchecked until the full text is read.
+
 ## 2026-10-30: WHO retired the Global Health Observatory API
 - **Symptom:** `fetch_who_gho.py` failed with HTTP 500 on all three tries. `ghoapi.azureedge.net` returned 500 even for `Indicator?$top=2`. `ghoapi.who.int` did not resolve (curl exit 6).
 - **Cause:** WHO's legacy page says the old API is retired. A search found no confirmed new endpoint.
