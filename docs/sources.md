@@ -1,11 +1,38 @@
 # Data sources
 
-One row for each source. The data audit (stage 2) fills this table.
-"Type" is `direct` (measures constipation or the factor itself) or `proxy` (a related measure).
+One row for each source. This table is the output of the stage 2 audit (2026-10-30).
+Three searchers found the sources: Claude, Muse (an outside model), and a second Muse pass. Codex could not search the web (see `docs/problems.md`).
 
-| Topic | Source | Country | Years | Splits (age, sex, region, class) | License and reuse rule | Type | Link |
-|---|---|---|---|---|---|---|---|
-| (empty) | | | | | | | |
+## How to read the table
+- **Type:** `direct` means the source measures the thing itself. `proxy` means a related measure, and the cell says what it stands for.
+- **Splits:** A = age. S = sex. R = region (state, county, district). C = economic class (income, poverty ratio, wealth, education, occupation).
+- **Access:** `open` = download with no account. `registration` = free account or request form. `restricted` = contract, fee, or approval by the owner.
+- **Checked:** what Claude did.
+  - `opened` = Claude opened this page or file documentation and read the facts in the row.
+  - `search` = the fact comes from a web search summary. Claude did not open the page.
+  - `Muse` = the row comes from a Muse report. Claude did not open the page. Muse made at least one wrong URL in its first report, so treat these rows as leads.
+  - `blocked` = the page returned HTTP 403 or 404. The fact is not checked.
+- A license cell that says `not checked` means nobody read the terms page. Do not use that source until the cell is filled.
 
 ## Citation rule
 Each source needs a full citation in this file before the repo uses its data.
+
+## 1. Constipation
+
+| ID | Source | Country | Years | Splits | Type | Access | License or reuse terms | Checked | URL |
+|---|---|---|---|---|---|---|---|---|---|
+| C1 | NHANES Bowel Health file (BHQ), CDC NCHS | US | 2005-06, 2007-08: stool frequency (`BHD050`) and Bristol stool form (`BHQ060`). 2009-10: also self-reported constipation in past 12 months (`BHQ080`) and laxative or stool softener use (`BHQ100`, `BHQ110`). Later cycles: not checked. | A (20 years and older), S. Race and poverty-income ratio come from other NHANES files (not checked here). | direct (self-report in 2009-10); proxy (stool form and frequency in 2005-08) | open | NCHS terms: "use the data ... for statistical reporting and analysis only"; no attempt to learn identities; no linking with identifiable data from other datasets. No public-domain or copyright statement found on the page. | opened (2005-06, 2007-08, 2009-10 documentation) | https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/2009/DataFiles/BHQ_F.htm ; https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/2005/DataFiles/BHQ_D.htm ; https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/2007/DataFiles/BHQ_E.htm |
+| C2 | National Health Interview Survey (NHIS), constipation condition item, CDC NCHS, via IPUMS NHIS | US | `CONSTIPYRC`: 1975 and 1978-1996. `CONSTIPYR` (after 1996): years not checked. IPUMS warns that the two items are not comparable. | A, S, R (region), C (via other NHIS variables) | direct (self-report of frequent constipation) | open | IPUMS page shows "Copyright (c) Minnesota Population Center, University of Minnesota"; no usage terms on the page. NCHS terms (see C1) also apply. | opened (IPUMS variable page) | https://nhis.ipums.org/nhis-action/variables/285621 |
+| C3 | National Ambulatory Medical Care Survey (NAMCS) and Hospital Ambulatory Medical Care Survey (NHAMCS), CDC NCHS | US | Muse: 1995-2021, varies | Muse: A, S, R, C (payer) | direct (visit diagnosis) | open; restricted data center for detail (Muse) | not checked | Muse; page blocked (HTTP 403 for Muse) | https://www.cdc.gov/nchs/namcs/documentation/about-the-data-2025.html |
+| C4 | HCUP National Inpatient Sample (NIS) and Nationwide Emergency Department Sample (NEDS), AHRQ | US | NIS 1988-2022 (Muse). NEDS introductions exist for 2006-2020 (search). | A, S, R, C (payer, ZIP income) | direct (discharge diagnosis, ICD code) | restricted: data use agreement and purchase | search: users agree to use the data only for research or aggregate statistical reporting and not to re-release it. Full terms not read. | search; Muse | https://hcup-us.ahrq.gov/db/nation/nis/NIS_Introduction_2020.jsp |
+| C5 | Medical Expenditure Panel Survey (MEPS), AHRQ | US | Muse: 1996-2024 (not checked) | A, S, R, C | direct (medical conditions) if a conditions file lists constipation (not checked) | open | MEPS data use agreement: "No one is to use the data in this data set in any way except for statistical reporting and analysis"; no identification; no linking with identifiable records from other data sets, except MEPS or NHIS; cite AHRQ and MEPS. | opened (data use page); years not checked | https://meps.ahrq.gov/data_stats/data_use.jsp |
+| C6 | Global Burden of Disease (GBD) results, IHME | Both | 1990-2023 (Muse; not checked) | A, S, R (country; states in some releases) | proxy: modelled digestive disease burden. Not confirmed that constipation is a separate cause. | registration (Muse) | search: IHME free-of-charge non-commercial user agreement lets non-commercial users use, share, modify and build upon downloads. Exact text not read. | search; blocked (HTTP 403) | https://www.healthdata.org/data-tools-practices/interactive-visuals/gbd-results |
+| C7 | Rome Foundation Global Epidemiology Study (Rome IV questionnaire) | Both | US: two national internet surveys, 2015 and 2017. India: analysed by Ghoshal et al. 2023 (years not checked). 33 countries in total. | A, S, R (country), C (limited) | direct (Rome IV functional constipation) | restricted: database "available through the Rome Foundation Research Institute for use by academic and industry researchers" | not checked | opened (study page; first 100,000 of 125,651 characters) | https://theromefoundation.org/rome-foundation-global-epidemiology-study/ |
+| C8 | Abbott "Gut Health Survey", India | India | Muse: 2015 and 2018 releases. A press release reports 22% of adults, with the highest value in Kolkata (28%). | A (adult), S, R (8 cities) | direct but company-run self-report; not comparable with clinical studies | press reports only; no data files found | not applicable (press release) | search | https://www.abbott.in/media-center/press-releases/indian-adults-suffer-from-constipation.html |
+| C9 | Indian community and clinic prevalence studies, as listed in the Indian consensus on chronic constipation | India | studies up to 2019 | A, S, R (site) | direct (prevalence from studies, mixed definitions) | published tables only, no microdata | not checked | search: prevalence from 2.6% to 24.8%; 555 of 4,767 (11.6%) in a north Indian community study; 16.8% (Rome II) in Chandigarh | https://pmc.ncbi.nlm.nih.gov/articles/PMC6339668 |
+| C10 | Longitudinal Ageing Study in India (LASI), Wave 1 | India | 2017-2018 (Sikkim 2020-21); 73,396 adults aged 45 and older | A (45+), S, R (state), C | proxy: a published analysis counts constipation only inside a combined gastrointestinal problem item. A separate constipation item is not confirmed. | registration: data request form with identity proof; "only granted for legitimate academic research purposes" | redistribution and citation terms not stated on the page | opened (IIPS data page) | https://iipsindia.ac.in/node/6702 |
+| C11 | WHO Study on global AGEing and adult health (SAGE), India | India | Muse: waves 2007-2010 and 2014-2015 | A (18+), S, R, C | proxy; bowel item not confirmed | registration (Muse) | not checked | Muse | https://apps.who.int/healthinfo/systems/surveydata/index.php/catalog/65 |
+| C12 | NSS health and morbidity rounds (52nd, 60th, 71st, 75th), MoSPI | India | Muse: 1995-96, 2004, 2014, 2017-18 | A, S, R (state), C (expenditure class) | proxy: ailment and hospital care; a constipation code is rare (Muse) | reports open; microdata by request | The portal says it "follows policy of open access to microdata"; the policy and download pages were not read. | Muse; access page opened | https://microdata.gov.in/ |
+| C13 | IQVIA sales data for laxatives (National Sales Perspectives, MIDAS) | Both | Muse: 1995-2025, varies | R (national) | proxy: laxative sales | restricted: commercial contract | not applicable | Muse; a search found no open series | https://www.iqvia.com/insights/the-iqvia-institute/available-iqvia-data |
+
+<!-- next-group -->
