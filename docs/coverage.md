@@ -36,6 +36,6 @@ Rules for later plans: use the survey weights, stratum, and sampling unit from `
 5. State or county splits from NHANES. The Codex review says the public files do not carry state or region (not checked by Claude; see `docs/audit-notes.md`).
 
 ## Next decisions for the user
-1. **Weak constipation series.** Options: (a) proxies only; (b) a series built from published prevalence studies, with every study labelled; (c) a shorter period, such as US 2005-2010 plus later proxies. I suggest (b) for the long view and (c) for the person-level analysis.
+1. **Weak constipation series.** The literature search is done: see `docs/research/constipation-prevalence-studies.md` (48 studies; the number depends on the definition; no national India series; a repeated measure only in the US). Options: (a) proxies only; (b) a series built from published prevalence studies, with every study labelled; (c) a shorter period, such as US 2005-2010 plus later proxies. I suggest (b) for the long view and (c) for the person-level analysis.
 2. **Global Dietary Database.** Register by hand, or skip it. It is the only source in hand that has fibre by age, sex, and education for India.
 3. **Batch 2 sources.** Candidates: BRFSS (activity and diet, 1991-2025), CPS and ACS (income), NHANES cycles after 2010, and the registration sources (LASI, NFHS, IHDS, NHATS). Each registration needs a decision.
