@@ -1,0 +1,31 @@
+#!/bin/sh
+# Pre-commit guardrail for this public repo.
+# 1. Refuse a commit that holds a file from data/ (raw data is never committed).
+# 2. Run the unit tests.
+# 3. Scan the staged changes for secrets with gitleaks.
+# Install once: git config core.hooksPath .githooks
+set -e
+root=$(git rev-parse --show-toplevel)
+cd "$root"
+
+if git diff --cached --name-only | grep -q '^data/'; then
+    echo "pre-commit: refused. A file under data/ is staged. Raw data is never committed." >&2
+    git diff --cached --name-only | grep '^data/' >&2
+    exit 1
+fi
+
+if ! python3 -I -m unittest discover -s tests -q >/dev/null 2>"${TMPDIR:-/tmp}/constipation-hook-tests.log"; then
+    echo "pre-commit: refused. The unit tests fail (last 25 lines):" >&2
+    tail -n 25 "${TMPDIR:-/tmp}/constipation-hook-tests.log" >&2
+    exit 1
+fi
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+    echo "pre-commit: refused. gitleaks is not installed (brew install gitleaks)." >&2
+    exit 1
+fi
+if ! gitleaks git --staged --redact --no-banner >/dev/null 2>"${TMPDIR:-/tmp}/constipation-hook-gitleaks.log"; then
+    echo "pre-commit: refused. gitleaks found a possible secret in the staged changes:" >&2
+    cat "${TMPDIR:-/tmp}/constipation-hook-gitleaks.log" >&2
+    exit 1
+fi

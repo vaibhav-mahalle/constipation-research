@@ -15,6 +15,7 @@ This repo studies constipation, food choices, physical activity, and economic cl
 3. **Explore first, test second.** Causal ideas are written down before the test. The test uses data that the exploration did not use.
 4. **Say "linked with", not "causes",** unless a causal test supports it.
 5. **One commit for each step.** The message says what changed, why, and which options were rejected.
+6. **Install the hook once per clone:** `git config core.hooksPath .githooks` (see `CONTRIBUTING.md`). It runs the tests and gitleaks before each commit. Agents read `AGENTS.md` first.
 
 ## Where things are
 | Path | Content |
@@ -27,7 +28,9 @@ This repo studies constipation, food choices, physical activity, and economic cl
 | `data/` | Local only. Not in git. |
 
 ## Status
-Stage 1: repo setup. Next: data audit (which sources exist for India and the US).
+Stage 1 (repo setup) and stage 2 (data audit) are done. The audit found 74 sources for India and the US. Direct constipation data is thin: see `docs/decisions/0002-source-audit-method-and-result.md`.
+Stage 3 (collect, batch 1) is done: run `python3 scripts/fetch_all.py` to rebuild `data/` (NHANES 2005-2010, FAOSTAT, World Bank, Strain et al. activity files), then `python3 scripts/verify.py`. See `docs/coverage.md` for what the data can and cannot show. The Global Dietary Database needs a free account, which you register by hand.
+Next: decide how to handle the weak constipation series, then stage 4 (clean and join).
 
 ## License
 Code: MIT (see `LICENSE`). Data: each source keeps its own license. See `docs/sources.md`.
