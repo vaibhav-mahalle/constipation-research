@@ -8,14 +8,14 @@ import common
 import fetch_faostat
 import fetch_gdd
 import fetch_nhanes
-import fetch_who_gho
+import fetch_strain_pa
 import fetch_worldbank
 
 FETCHERS = [
     ("nhanes", fetch_nhanes),
     ("faostat", fetch_faostat),
     ("gdd", fetch_gdd),
-    ("who_gho", fetch_who_gho),
+    ("strain_pa", fetch_strain_pa),
     ("worldbank", fetch_worldbank),
 ]
 

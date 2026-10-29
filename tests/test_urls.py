@@ -1,14 +1,17 @@
 """Offline tests: URL builders return the expected strings. No network."""
+import io
 import sys
+import tempfile
 import unittest
-import urllib.parse
+import unittest.mock
+from contextlib import redirect_stdout
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 import fetch_faostat
 import fetch_gdd
 import fetch_nhanes
-import fetch_who_gho
+import fetch_strain_pa
 import fetch_worldbank
 
 NHANES = "https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public"
@@ -71,29 +74,54 @@ class TestWorldBankUrls(unittest.TestCase):
         )
 
 
-class TestWhoUrls(unittest.TestCase):
-    def test_indicator_list_url(self):
-        url = fetch_who_gho.who_indicator_list_url()
-        self.assertTrue(url.startswith("https://ghoapi.azureedge.net/api/Indicator?"))
-        # The query is URL-encoded; decode before the text check.
-        self.assertIn("contains(IndicatorName,'physical activity')",
-                      urllib.parse.unquote(url))
+class TestStrainUrls(unittest.TestCase):
+    BASE = "https://raw.githubusercontent.com/MLGlobalHealth/PinA/main/"
 
-    def test_data_url_filters_ind_and_usa(self):
-        url = fetch_who_gho.who_data_url("MK_ABC_123")
-        self.assertTrue(url.startswith("https://ghoapi.azureedge.net/api/MK_ABC_123?"))
-        self.assertIn("SpatialDim eq 'IND' or SpatialDim eq 'USA'",
-                      urllib.parse.unquote(url))
+    def test_exact_urls(self):
+        self.assertEqual(
+            fetch_strain_pa.strain_url(
+                "results/Strain et al 2024 country and region estimates - Github.xlsx"),
+            self.BASE + "results/Strain%20et%20al%202024%20country%20and%20region"
+            "%20estimates%20-%20Github.xlsx",
+        )
+        self.assertEqual(
+            fetch_strain_pa.strain_url("data/pina_dataset.csv"),
+            self.BASE + "data/pina_dataset.csv",
+        )
+        self.assertEqual(
+            fetch_strain_pa.strain_url("data/readme.md"),
+            self.BASE + "data/readme.md",
+        )
+        self.assertEqual(
+            fetch_strain_pa.strain_url("results/readme.md"),
+            self.BASE + "results/readme.md",
+        )
 
-    def test_find_indicator_prefers_age_standardized_adults(self):
-        rows = {"value": [
-            {"IndicatorCode": "X1", "IndicatorName": "Physical activity in children"},
-            {"IndicatorCode": "X2", "IndicatorName":
-             "Prevalence of insufficient physical activity among adults aged 18+ years "
-             "(age-standardized estimate) (%)"},
-        ]}
-        self.assertEqual(fetch_who_gho.find_indicator(rows)["IndicatorCode"], "X2")
-        self.assertIsNone(fetch_who_gho.find_indicator({"value": []}))
+    def test_file_list(self):
+        entries = fetch_strain_pa.strain_entries()
+        self.assertEqual(
+            [entry["url"] for entry in entries],
+            [
+                self.BASE + "results/Strain%20et%20al%202024%20country%20and%20region"
+                "%20estimates%20-%20Github.xlsx",
+                self.BASE + "data/pina_dataset.csv",
+                self.BASE + "data/readme.md",
+                self.BASE + "results/readme.md",
+            ],
+        )
+        self.assertEqual(
+            [entry["filename"] for entry in entries],
+            [
+                "strain_et_al_2024_country_region_estimates.xlsx",
+                "pina_dataset.csv",
+                "data_readme.md",
+                "results_readme.md",
+            ],
+        )
+        self.assertEqual(
+            [entry["expected_min_bytes"] for entry in entries],
+            [1_000_000, 1_000_000, 10, 10],
+        )
 
 
 class TestGddLinks(unittest.TestCase):
@@ -119,6 +147,34 @@ class TestGddLinks(unittest.TestCase):
         links = fetch_gdd.parse_gdd_links('<a href="/x.csv">Sodium</a>')
         self.assertIsNone(links["fibre"])
         self.assertIsNone(links["codebook"])
+
+    def test_needs_account_page_no_download(self):
+        html = (
+            "<html><body><p>Create Your New Account</p>"
+            "<p>Login to Your Existing Account</p></body></html>"
+        )
+        self.assertTrue(fetch_gdd.is_needs_account_page(html))
+        with tempfile.TemporaryDirectory() as tmp:
+            data_dir = Path(tmp) / "data"
+            out = io.StringIO()
+            with unittest.mock.patch.object(
+                fetch_gdd.common, "fetch_text", return_value=(html, 200)
+            ) as mock_fetch, unittest.mock.patch.object(
+                fetch_gdd.common, "fetch_one"
+            ) as mock_download, redirect_stdout(out):
+                code = fetch_gdd.main(["--data-dir", str(data_dir)])
+            self.assertEqual(code, 0)
+            self.assertEqual(mock_fetch.call_count, 1)
+            mock_download.assert_not_called()
+            text = out.getvalue()
+            self.assertIn(
+                "needs_account https://gdd.nutrition.tufts.edu/data-download", text)
+            self.assertIn(
+                "GDD data need a free account. Register by hand, read the terms, "
+                "then put the files in data/raw/gdd/.", text)
+            dest_dir = data_dir / "raw" / "gdd"
+            files = sorted(p.name for p in dest_dir.iterdir()) if dest_dir.exists() else []
+            self.assertEqual(files, ["TERMS_NOTE.txt"])
 
 
 if __name__ == "__main__":
