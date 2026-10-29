@@ -1,0 +1,20 @@
+# Raw and derived data: rebuild with the scripts. Do not commit.
+data/
+*.parquet
+*.duckdb
+*.sas7bdat
+*.xpt
+*.dta
+*.sav
+
+# Secrets
+.env
+*.key
+
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
+
+# macOS
+.DS_Store
