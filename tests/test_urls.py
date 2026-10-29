@@ -1,9 +1,11 @@
 """Offline tests: URL builders return the expected strings. No network."""
+import hashlib
 import io
 import sys
 import tempfile
 import unittest
 import unittest.mock
+import zipfile
 from contextlib import redirect_stdout
 from pathlib import Path
 
@@ -175,6 +177,133 @@ class TestGddLinks(unittest.TestCase):
             dest_dir = data_dir / "raw" / "gdd"
             files = sorted(p.name for p in dest_dir.iterdir()) if dest_dir.exists() else []
             self.assertEqual(files, ["TERMS_NOTE.txt"])
+
+
+class TestGddSchemeFilter(unittest.TestCase):
+    def test_file_link_labelled_fiber_gives_no_fibre(self):
+        html = '<a href="file:///etc/passwd">fiber</a>'
+        links = fetch_gdd.parse_gdd_links(html)
+        self.assertIsNone(links["fibre"])
+
+
+class TestNeedsLoginExits(unittest.TestCase):
+    def _run(self, module):
+        with tempfile.TemporaryDirectory() as tmp:
+            data_dir = Path(tmp) / "data"
+            with unittest.mock.patch.object(
+                module.common, "fetch_one", return_value="needs_login"
+            ), redirect_stdout(io.StringIO()):
+                return module.main(["--data-dir", str(data_dir)]), data_dir
+
+    def test_nhanes_needs_login_exits_1(self):
+        code, _ = self._run(fetch_nhanes)
+        self.assertEqual(code, 1)
+
+    def test_worldbank_needs_login_exits_1(self):
+        code, _ = self._run(fetch_worldbank)
+        self.assertEqual(code, 1)
+
+    def test_strain_needs_login_exits_1(self):
+        code, _ = self._run(fetch_strain_pa)
+        self.assertEqual(code, 1)
+
+    def test_faostat_needs_login_exits_1(self):
+        code, _ = self._run(fetch_faostat)
+        self.assertEqual(code, 1)
+
+
+class TestNhanesTermsNote(unittest.TestCase):
+    def test_note_written_with_mocked_downloads(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data_dir = Path(tmp) / "data"
+            with unittest.mock.patch.object(
+                fetch_nhanes.common, "fetch_one", return_value="skip"
+            ), redirect_stdout(io.StringIO()):
+                code = fetch_nhanes.main(["--data-dir", str(data_dir)])
+            self.assertEqual(code, 0)
+            note = data_dir / "raw" / "nhanes" / "TERMS_NOTE.txt"
+            self.assertTrue(note.exists())
+            self.assertEqual(
+                note.read_text(encoding="utf-8").strip(),
+                "NHANES data, CDC NCHS. Terms (NCHS data use): use the data for "
+                "statistical reporting and analysis only; make no attempt to learn "
+                "the identity of any person; do not link this dataset with "
+                "individually identifiable data from other datasets. Cite the "
+                "NHANES cycle and file name.",
+            )
+
+
+class TestGddMissingLinks(unittest.TestCase):
+    def _run_gdd(self, html, fetch_one_status="ok"):
+        with tempfile.TemporaryDirectory() as tmp:
+            data_dir = Path(tmp) / "data"
+            with unittest.mock.patch.object(
+                fetch_gdd.common, "fetch_text", return_value=(html, 200)
+            ), unittest.mock.patch.object(
+                fetch_gdd.common, "fetch_one", return_value=fetch_one_status
+            ), redirect_stdout(io.StringIO()):
+                return fetch_gdd.main(["--data-dir", str(data_dir)])
+
+    def test_no_links_no_account_wall_exits_1(self):
+        self.assertEqual(self._run_gdd("<html><body>hello</body></html>"), 1)
+
+    def test_missing_codebook_exits_1(self):
+        html = '<a href="/files/fiber_country.csv">Dietary fibre (CSV)</a>'
+        self.assertEqual(self._run_gdd(html), 1)
+
+    def test_needs_account_still_exits_0(self):
+        html = ("<html><body><p>Create Your New Account</p>"
+                "<p>Login to Your Existing Account</p></body></html>")
+        self.assertEqual(self._run_gdd(html), 0)
+
+
+class TestFaostatExtractedManifest(unittest.TestCase):
+    def test_first_records_second_skips_changed_reextracts(self):
+        import common as common_mod
+
+        with tempfile.TemporaryDirectory() as tmp:
+            data_dir = Path(tmp) / "data"
+            dest_dir = data_dir / "raw" / "faostat"
+            dest_dir.mkdir(parents=True)
+            members = {
+                fetch_faostat.FILENAMES[0]: {"a.csv": b"a,b\n1,2\n"},
+                fetch_faostat.FILENAMES[1]: {"b.csv": b"c,d\n3,4\n"},
+            }
+            for filename, files in members.items():
+                with zipfile.ZipFile(dest_dir / filename, "w") as archive:
+                    for name, data in files.items():
+                        archive.writestr(name, data)
+
+            def run():
+                out = io.StringIO()
+                with unittest.mock.patch.object(
+                    fetch_faostat.common, "fetch_one", return_value="skip"
+                ), redirect_stdout(out):
+                    code = fetch_faostat.main(["--data-dir", str(data_dir)])
+                return code, out.getvalue()
+
+            code, _ = run()
+            self.assertEqual(code, 0)
+            manifest = common_mod.Manifest(data_dir / "manifest.csv")
+            for filename, files in members.items():
+                for name, data in files.items():
+                    row = manifest.find(dest_dir / name)
+                    self.assertIsNotNone(row, name)
+                    self.assertEqual(row["source_id"], "faostat")
+                    self.assertEqual(row["url"], fetch_faostat.faostat_url(filename) + "#" + name)
+                    self.assertEqual(row["bytes"], str(len(data)))
+                    self.assertEqual(row["sha256"], hashlib.sha256(data).hexdigest())
+                    self.assertEqual(row["http_status"], "200")
+                    self.assertEqual((dest_dir / name).read_bytes(), data)
+
+            code, out = run()
+            self.assertEqual(code, 0)
+            self.assertIn("skip (complete)", out)
+
+            (dest_dir / "a.csv").write_bytes(b"tampered longer content")
+            code, _ = run()
+            self.assertEqual(code, 0)
+            self.assertEqual((dest_dir / "a.csv").read_bytes(), b"a,b\n1,2\n")
 
 
 if __name__ == "__main__":

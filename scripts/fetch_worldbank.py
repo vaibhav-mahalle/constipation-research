@@ -51,7 +51,7 @@ def main(argv=None):
             SOURCE_ID, entry["url"], dest, manifest, force=args.force,
             expected_min_bytes=2, data_dir=data_dir, logger=logger,
         )
-        if status == "failed":
+        if status in ("failed", "needs_login"):
             failed += 1
     print("worldbank done, failed=%s" % failed)
     return 1 if failed else 0

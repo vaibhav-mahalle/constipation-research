@@ -72,7 +72,7 @@ def main(argv=None):
             expected_min_bytes=entry["expected_min_bytes"],
             data_dir=data_dir, logger=logger,
         )
-        if status == "failed":
+        if status in ("failed", "needs_login"):
             failed += 1
     print("strain_pa done, failed=%s" % failed)
     return 1 if failed else 0

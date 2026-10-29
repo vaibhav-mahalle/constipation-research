@@ -38,16 +38,43 @@ def license_text():
     )
 
 
-def unzip_safe(zip_path, dest_dir, logger):
-    """Unzip into dest_dir. Refuse members that escape dest_dir."""
+def unzip_safe(zip_path, dest_dir, logger, manifest=None, zip_url=None):
+    """Unzip into dest_dir. Refuse members that escape dest_dir.
+
+    With a manifest, record each member. Skip a member that is complete.
+    Extract via a .part file. Never write a partial file to its final name.
+    """
     dest_dir = Path(dest_dir)
+    base_url = zip_url if zip_url is not None else str(zip_path)
     with zipfile.ZipFile(zip_path) as archive:
         for member in archive.namelist():
+            if member.endswith("/"):
+                continue
             target = (dest_dir / member).resolve()
             if dest_dir.resolve() not in target.parents and target != dest_dir.resolve():
                 logger.error("skip unsafe zip member %s", member)
                 continue
-            archive.extract(member, dest_dir)
+            if manifest is not None and common.is_complete(target, manifest):
+                print("skip (complete) %s" % target)
+                logger.info("skip (complete) %s", target)
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            part = target.with_name(target.name + ".part")
+            if part.is_symlink():
+                part.unlink()
+            with archive.open(member) as source, open(part, "wb") as out:
+                while True:
+                    chunk = source.read(1024 * 256)
+                    if not chunk:
+                        break
+                    out.write(chunk)
+            digest = common.sha256_file(part)
+            size = part.stat().st_size
+            part.replace(target)
+            if manifest is not None:
+                manifest.record(
+                    SOURCE_ID, target, "%s#%s" % (base_url, member),
+                    size, digest, 200)
             print("unzipped %s" % target)
 
 
@@ -72,11 +99,12 @@ def main(argv=None):
             SOURCE_ID, entry["url"], dest, manifest, force=args.force,
             expected_min_bytes=1024, data_dir=data_dir, logger=logger,
         )
-        if status == "failed":
+        if status in ("failed", "needs_login"):
             failed += 1
         elif dest.is_file():
             try:
-                unzip_safe(dest, dest_dir, logger)
+                unzip_safe(dest, dest_dir, logger, manifest=manifest,
+                           zip_url=entry["url"])
             except zipfile.BadZipFile as error:
                 logger.error("bad zip %s: %s", dest, error)
                 print("failed bad zip %s" % dest)

@@ -10,6 +10,13 @@ SOURCE_ID = "nhanes"
 BASE = "https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public"
 CYCLES = [(2005, "D"), (2007, "E"), (2009, "F")]  # (start year, file letter)
 NAMES = ["BHQ", "DEMO", "DR1TOT", "PAQ"]
+TERMS_TEXT = (
+    "NHANES data, CDC NCHS. Terms (NCHS data use): use the data for "
+    "statistical reporting and analysis only; make no attempt to learn "
+    "the identity of any person; do not link this dataset with "
+    "individually identifiable data from other datasets. Cite the "
+    "NHANES cycle and file name."
+)
 
 
 def nhanes_url(year, name, letter, ext="xpt"):
@@ -46,6 +53,8 @@ def main(argv=None):
     data_dir = common.resolve_data_dir(args.data_dir)
     logger, _ = common.setup_logging(SOURCE_ID, data_dir)
     manifest = common.Manifest(data_dir / "manifest.csv")
+    dest_dir = common.safe_dest(data_dir, SOURCE_ID, "x").parent
+    common.write_note(dest_dir / "TERMS_NOTE.txt", TERMS_TEXT, data_dir=data_dir)
     failed = 0
     for entry in entries:
         dest = common.safe_dest(data_dir, SOURCE_ID, entry["filename"])
@@ -53,7 +62,7 @@ def main(argv=None):
             SOURCE_ID, entry["url"], dest, manifest, force=args.force,
             expected_min_bytes=entry["expected_min_bytes"], data_dir=data_dir, logger=logger,
         )
-        if status == "failed":
+        if status in ("failed", "needs_login"):
             failed += 1
     print("nhanes done, failed=%s" % failed)
     return 1 if failed else 0

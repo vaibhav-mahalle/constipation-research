@@ -57,6 +57,8 @@ def parse_gdd_links(html_text, base_url=PAGE_URL):
     for href, text in parser.links:
         label = (href + " " + text).lower()
         url = urllib.parse.urljoin(base_url, href)
+        if urllib.parse.urlparse(url).scheme.lower() != "https":
+            continue
         if found["codebook"] is None and "codebook" in label:
             found["codebook"] = url
         if "fibre" in label or "fiber" in label:
@@ -118,6 +120,7 @@ def main(argv=None):
     dest_dir = common.safe_dest(data_dir, SOURCE_ID, "x").parent
     common.write_note(dest_dir / "TERMS_NOTE.txt", TERMS_TEXT, data_dir=data_dir)
     last_error = None
+    missing_link = False
     for page_url in PAGE_URLS:
         try:
             html_text, status = common.fetch_text(page_url, logger=logger)
@@ -140,8 +143,12 @@ def main(argv=None):
         if not links["fibre"] and not links["codebook"]:
             print("not_found fibre on %s" % page_url)
             logger.warning("not_found fibre on %s", page_url)
+            missing_link = True
             continue
         failed = 0
+        if not links["fibre"] or not links["codebook"]:
+            missing_link = True
+            failed += 1
         planned = [
             ("fibre", links["fibre"], "gdd_fibre_country.csv"),
             ("codebook", links["codebook"], "gdd_codebook.pdf"),
@@ -156,11 +163,14 @@ def main(argv=None):
                 SOURCE_ID, url, dest, manifest, force=args.force,
                 expected_min_bytes=64, data_dir=data_dir, logger=logger,
             )
-            if dl_status == "failed":
+            if dl_status in ("failed", "needs_login"):
                 failed += 1
         print("gdd done, failed=%s" % failed)
         return 1 if failed else 0
     if last_error is not None:
+        return 1
+    if missing_link:
+        print("gdd done, failed=1")
         return 1
     print("gdd done, failed=0")
     return 0
