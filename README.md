@@ -27,7 +27,8 @@ This repo studies constipation, food choices, physical activity, and economic cl
 | `data/` | Local only. Not in git. |
 
 ## Status
-Stage 1: repo setup. Next: data audit (which sources exist for India and the US).
+Stage 1 (repo setup) and stage 2 (data audit) are done. The audit found 74 sources for India and the US. Direct constipation data is thin: see `docs/decisions/0002-source-audit-method-and-result.md`.
+Next: stage 3, collect data with one script for each open source.
 
 ## License
 Code: MIT (see `LICENSE`). Data: each source keeps its own license. See `docs/sources.md`.
